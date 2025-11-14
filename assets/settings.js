@@ -237,78 +237,34 @@
       }
     });
 
-    window.addEventListener('keydown', (e) => {
-      if (!settingsOpen || !listeningFor) return;
-      if (e.key === 'Escape') {
+    window.addEventListener(
+      'keydown',
+      (e) => {
+        if (!settingsOpen || !listeningFor) return;
+        if (e.key === 'Escape') {
+          listeningFor = null;
+          keyButtons.forEach((b) => b.classList.remove('listening'));
+          return;
+        }
+        e.preventDefault();
+        e.stopPropagation();
+
+        const action = listeningFor;
         listeningFor = null;
         keyButtons.forEach((b) => b.classList.remove('listening'));
-        return;
-      }
-      e.preventDefault();
-      e.stopPropagation();
 
-      const action = listeningFor;
-      listeningFor = null;
-      keyButtons.forEach((b) => b.classList.remove('listening'));
+        let val;
+        if (e.key === ' ') val = 'Space';
+        else if (e.key === 'Shift' || e.key === 'ShiftLeft' || e.key === 'ShiftRight') val = 'Shift';
+        else if (e.key.length === 1) val = e.key.toLowerCase();
+        else val = e.key;
 
-      let val;
-      if (e.key === ' ') val = 'Space';
-      else if (e.key === 'Shift' || e.key === 'ShiftLeft' || e.key === 'ShiftRight') val = 'Shift';
-      else if (e.key.length === 1) val = e.key.toLowerCase();
-      else val = e.key;
-
-      settings.keybinds[action] = val;
-      saveSettings();
-      syncUI();
-    }, true);
-
-    const originalRAF = window.requestAnimationFrame;
-    let lastFrameTime = performance.now();
-    let fps = 0;
-
-    window.requestAnimationFrame = function(callback) {
-      return originalRAF(function(timestamp) {
-        const dt = (timestamp - lastFrameTime) / 1000;
-        lastFrameTime = timestamp;
-        if (dt > 0 && dt < 1) {
-          fps = fps * 0.9 + (1 / dt) * 0.1;
-          if (fpsEl && settings.graphics.showFPS) {
-            fpsEl.textContent = 'FPS: ' + Math.round(fps);
-          }
-        }
-
-        callback(timestamp);
-
-        const c = window.canvas || document.getElementById('game');
-        if (window.ctx && window.player && window.cam && typeof window.zoom === 'number' && c) {
-          const p = window.player;
-          const pr = p.size / 2;
-          const color = settings.player.color || DEFAULT.player.color;
-
-          window.ctx.save();
-          window.ctx.translate(c.width / 2, c.height / 2);
-          window.ctx.scale(window.zoom, window.zoom);
-          window.ctx.translate(-window.cam.x, -window.cam.y);
-
-          window.ctx.beginPath();
-          window.ctx.fillStyle = color;
-          window.ctx.arc(p.x, p.y, pr, 0, Math.PI * 2);
-          window.ctx.fill();
-
-          if (settings.player.showHitbox) {
-            window.ctx.strokeStyle = '#ffdd33';
-            window.ctx.lineWidth = 2 / window.zoom;
-            window.ctx.strokeRect(p.x - pr, p.y - pr, p.size, p.size);
-          }
-
-          window.ctx.restore();
-        }
-
-        if (playerStateEl && settings.player.showState) {
-          playerStateEl.textContent = 'State: Alive';
-        }
-      });
-    };
+        settings.keybinds[action] = val;
+        saveSettings();
+        syncUI();
+      },
+      true
+    );
 
     window.__jpSettings = settings;
   });

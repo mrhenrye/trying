@@ -73,6 +73,8 @@
     const fuelBarInner = document.getElementById('fuelBarInner');
     const coordsEl = document.getElementById('coords');
     const statHUD = document.getElementById('statHUD');
+    const fpsEl = document.getElementById('fpsCounter');
+    const playerStateEl = document.getElementById('playerState');
 
     const BOOST = {
       accelMul: 1.5,
@@ -158,6 +160,7 @@
     window.zoom = zoom;
 
     let lastTime = performance.now();
+    let smoothedFPS = 0;
 
     let __prevUsingJet = false;
 
@@ -333,6 +336,19 @@
       player.vy = 0;
       player.stamina = CONFIG.staminaMax;
       fuelBarInner.style.width = '100%';
+      updatePlayerStateLabel();
+    }
+
+    function writeDiagnostics() {
+      if (!statHUD) return;
+      const sp = Math.hypot(player.vx, player.vy).toFixed(3);
+      statHUD.innerHTML = `pos: ${Math.round(player.x)}, ${Math.round(player.y)}<br>vel: ${Math.round(player.vx)}, ${Math.round(player.vy)} (${sp})`;
+    }
+
+    function updatePlayerStateLabel() {
+      if (!playerStateEl) return;
+      const status = player.stamina <= 0 ? 'Exhausted' : 'Alive';
+      playerStateEl.textContent = `State: ${status}`;
     }
 
     function currentIntent() {
@@ -417,10 +433,8 @@
         zoom = lerp(zoom, targetZoom, CONFIG.zoomLerp);
         fuelBarInner.style.width = `${(player.stamina / CONFIG.staminaMax) * 100}%`;
         coordsEl.textContent = `Coords: ${Math.round(player.x)}, ${Math.round(player.y)}`;
-        if (statHUD) {
-          const sp0 = Math.hypot(player.vx, player.vy).toFixed(3);
-          statHUD.innerHTML = `pos: ${Math.round(player.x)}, ${Math.round(player.y)}<br>vel: ${Math.round(player.vx)}, ${Math.round(player.vy)} (${sp0})`;
-        }
+        writeDiagnostics();
+        updatePlayerStateLabel();
         return;
       }
 
@@ -617,10 +631,8 @@
 
       fuelBarInner.style.width = `${(player.stamina / CONFIG.staminaMax) * 100}%`;
       coordsEl.textContent = `Coords: ${Math.round(player.x)}, ${Math.round(player.y)}`;
-      if (statHUD) {
-        const sp = Math.hypot(player.vx, player.vy).toFixed(3);
-        statHUD.innerHTML = `pos: ${Math.round(player.x)}, ${Math.round(player.y)}<br>vel: ${Math.round(player.vx)}, ${Math.round(player.vy)} (${sp})`;
-      }
+      writeDiagnostics();
+      updatePlayerStateLabel();
 
       __prevUsingJet = usingJet;
     }
@@ -662,9 +674,18 @@
 
       ctx.beginPath();
       const pr = player.size / 2;
-      ctx.fillStyle = '#086699';
+      const activeSettings = window.__jpSettings;
+      const playerColor = activeSettings?.player?.color || '#086699';
+      const showHitbox = !!activeSettings?.player?.showHitbox;
+      ctx.fillStyle = playerColor;
       ctx.arc(player.x, player.y, pr, 0, Math.PI * 2);
       ctx.fill();
+
+      if (showHitbox) {
+        ctx.strokeStyle = '#ffdd33';
+        ctx.lineWidth = 2 / zoom;
+        ctx.strokeRect(player.x - pr, player.y - pr, player.size, player.size);
+      }
 
       ctx.restore();
 
@@ -765,6 +786,13 @@
     function loop(now) {
       const dt = Math.min(0.032, (now - lastTime) / 1000);
       lastTime = now;
+      if (dt > 0) {
+        const sample = 1 / dt;
+        smoothedFPS = smoothedFPS ? smoothedFPS * 0.9 + sample * 0.1 : sample;
+        if (fpsEl) {
+          fpsEl.textContent = `FPS: ${Math.round(smoothedFPS)}`;
+        }
+      }
       update(dt);
       draw();
       requestAnimationFrame(loop);
