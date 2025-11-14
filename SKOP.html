@@ -1,0 +1,1476 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Jetpack Platformer with Smooth Inertia — Glide Tweaked</title>
+  <style>
+    html,body { height:100%; margin:0; background:#0b0b0c; color:#ddd; font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; }
+    canvas { display:block; width:100vw; height:100vh; background:#0b0b0c; cursor: crosshair; }
+
+    /* Stamina bar */
+    #fuelBarWrap {
+      position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%);
+      width: clamp(200px, 100% - 650px, 600px); height: 25px;
+      background: #79b6ff; border-radius: 12px; border: 2px solid #000b31; pointer-events: none;
+    }
+    #fuelBarInner { position: absolute; width: 50%; height: 100%; left: 0; background: #15325f; border-radius: 10px; }
+
+    /* HUD: coords + placement */
+    #statHUD {
+      position: fixed; left: 12px; bottom: 12px;
+      background: rgba(0,0,0,0.55); padding: 6px 10px; border-radius: 8px;
+      font-size: 13px; color: #e6f1ff; z-index: 35; border: 1px solid rgba(255,255,255,0.04);
+      line-height: 1.25; min-width: 160px;
+    }
+    #coords {
+      position: fixed; right: 12px; top: 12px;
+      background: rgba(0,0,0,0.45); padding: 6px 10px; border-radius: 8px;
+      font-size: 13px; color: #e6f1ff; z-index: 30; border: 1px solid rgba(255,255,255,0.04);
+    }
+    #placementMenu {
+      position: fixed; left: 12px; top: 12px; width: 220px;
+      background: rgba(0,0,0,0.5); padding: 10px; border-radius: 10px; color: #fff; z-index: 40;
+      display: none; border: 1px solid rgba(255,255,255,0.04);
+    }
+    #placementMenu h3 { margin:0 0 8px 0; font-size:14px; }
+    .placeBtn {
+      display:flex; align-items:center; gap:8px; padding:6px 8px; margin:6px 0; border-radius:6px;
+      background: rgba(255,255,255,0.03); cursor:pointer; user-select:none;
+    }
+    .placeBtn.selected { outline: 2px solid rgba(255,255,255,0.06); box-shadow: 0 6px 22px rgba(0,0,0,0.6) inset; }
+    .hint { margin-top:8px; font-size:12px; opacity:0.8; color:#cbd7ff; }
+
+    @media (max-width:520px) {
+      #fuelBarWrap { width: 85%; left: 50%; transform: translateX(-50%); }
+      #placementMenu { width: 90%; left: 50%; transform: translateX(-50%); top: 8px; }
+    }
+
+    /* Power button UI */
+    .power {
+      width: 50px; height: 50px; position: absolute; right: 10px; top: 50%;
+      background: rgba(58, 58, 58, 0.8); border: 2px solid rgb(40, 39, 39); border-radius: 16px;
+    }
+    .powerImage { width: 80%; height: 80%; margin-left: 10%; margin-top: 10%; position: absolute; }
+    #power0 { transform: translate(0, -112.5%); }
+    #power1 { transform: translate(0, 12.5%); }
+    #power0input, #power1input {
+      background: transparent; border-radius: 1px; width: 100%; height: 100%;
+      text-align: center; font-size: 15px; padding: 0; color: white;
+    }
+    #power0input:focus, #power1input:focus { outline: none; }
+    .coolDown, .heat { position: absolute; bottom: 0; background: #ff404040; width: 100%; border-radius: 16px; }
+    .heat { background: #2040ff80; }
+    .select { height: 100%; position: absolute; background: rgba(65, 65, 65, 0.67); border-radius: 16px; transition: 1s; display: flex; }
+    .selectclip { width: 100%; height: 100%; position: absolute; clip-path: path("M0 16 A16 16 0 0 1 16 0 L-10000 0 L-10000 50 L16 50 A16 16 0 0 1 0 34 Z"); }
+    .power:hover .select { transition: .2s; transform: translate(calc(-100% - 5px), 0); }
+    .poweroption { width: 50px; height: 50px; cursor: pointer; }
+    .poweroption img { margin: 5px; }
+    .poweroption:first-child { border-radius: 2px 0 0 2px; }
+    .poweroption:hover { background: #000b31; }
+
+    /* Key overlay */
+    #key-overlay {
+      position: fixed; bottom: 18px; right: 18px;
+      display: grid; grid-template-columns: repeat(3, 70px); grid-template-rows: repeat(2, 50px);
+      gap: 8px; user-select: none; z-index: 9999; pointer-events: none;
+    }
+    .key-box {
+      background: rgba(0, 0, 0, 0.7); color: #fff; border-radius: 6px;
+      display: flex; justify-content: center; align-items: center; font-weight: 600; font-size: 16px;
+      transition: background-color 0.2s; box-shadow: 0 0 5px rgba(255,255,255,0.1);
+      min-width: 0; min-height: 0; pointer-events: none;
+    }
+    .key-box.pressed { background: rgba(0, 120, 255, 0.7); color: white; box-shadow: 0 0 8px rgba(0, 120, 255, 0.9); }
+    @media (max-width: 600px) {
+      #key-overlay { right: 4vw; bottom: 4vw; grid-template-columns: repeat(3, 16vw); grid-template-rows: repeat(2, 10vw); gap: 2vw; }
+      .key-box { font-size: 4vw; }
+    }
+
+    /* Settings overlay + panels */
+    #settingsOverlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.4); /* ~40% opacity */
+      backdrop-filter: blur(3px);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s ease;
+      z-index: 99999;
+    }
+    #settingsOverlay::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0.4;
+      /* Fake grain */
+      background-image:
+        radial-gradient(circle at 0 0, rgba(255,255,255,0.08) 0, rgba(255,255,255,0.08) 1px, transparent 1px),
+        radial-gradient(circle at 100% 100%, rgba(255,255,255,0.06) 0, rgba(255,255,255,0.06) 1px, transparent 1px);
+      background-size: 3px 3px, 4px 4px;
+      mix-blend-mode: soft-light;
+    }
+    #settingsOverlay.open {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .settings-panel {
+      position: relative;
+      width: min(720px, 90vw);
+      max-height: 80vh;
+      background: rgba(12,12,18,0.96);
+      border-radius: 18px;
+      box-shadow: 0 26px 80px rgba(0,0,0,0.7);
+      border: 1px solid rgba(255,255,255,0.06);
+      padding: 18px 22px 18px;
+      overflow-y: auto;
+      transform: translateY(24px);
+      opacity: 0;
+      transition: transform 0.28s ease, opacity 0.28s ease;
+    }
+    #settingsOverlay.open .settings-panel {
+      transform: translateY(0);
+      opacity: 0.7;
+    }
+
+    .settings-title {
+      margin: 0 0 6px 0;
+      font-size: 22px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .rainbow-heading {
+      margin: 10px 0 6px;
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      background: linear-gradient(
+        90deg,
+        #ff5f6c,
+        #ffb347,
+        #f9f871,
+        #52ffb8,
+        #4dabff,
+        #b07cff,
+        #ff5fff
+      );
+      -webkit-background-clip: text;
+      color: transparent;
+    }
+
+    .settings-section {
+      margin-top: 6px;
+      padding-top: 6px;
+      border-top: 1px solid rgba(255,255,255,0.06);
+    }
+
+    .settings-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 14px;
+      padding: 4px 0;
+    }
+    .settings-row label,
+    .settings-row span {
+      font-size: 14px;
+    }
+    .settings-row input[type="checkbox"],
+    .settings-row input[type="radio"] {
+      accent-color: #4dabff;
+    }
+    .settings-inline-options {
+      display: flex;
+      gap: 8px;
+      font-size: 13px;
+    }
+
+    .color-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    #playerColorPicker {
+      width: 40px;
+      height: 24px;
+      padding: 0;
+      border-radius: 6px;
+      border: none;
+      background: transparent;
+    }
+    #playerColorHex {
+      flex: 1;
+      background: rgba(0,0,0,0.6);
+      border-radius: 6px;
+      border: 1px solid rgba(255,255,255,0.12);
+      padding: 4px 8px;
+      color: #e6f1ff;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 13px;
+    }
+
+    .keybind-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px 12px;
+      margin-top: 4px;
+    }
+    .keybind-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 14px;
+    }
+    .keybind-label {
+      opacity: 0.9;
+    }
+    .keybind-btn {
+      min-width: 70px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      font-size: 13px;
+      border: 1px solid rgba(255,255,255,0.18);
+      background: radial-gradient(circle at 0 0, rgba(255,255,255,0.18), transparent 55%);
+      color: #e6f1ff;
+      cursor: pointer;
+      text-align: center;
+      transition: background 0.15s ease, transform 0.1s ease,
+                  box-shadow 0.15s ease, border-color 0.15s ease;
+    }
+    .keybind-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 18px rgba(0,0,0,0.4);
+      border-color: rgba(90,171,255,0.9);
+    }
+    .keybind-btn.listening {
+      border-color: #ffffff;
+      box-shadow: 0 0 0 1px rgba(255,255,255,0.5);
+      background: rgba(255,255,255,0.05);
+    }
+    .settings-note {
+      margin-top: 8px;
+      font-size: 11px;
+      opacity: 0.7;
+    }
+    .settings-close-btn {
+      margin-top: 12px;
+      align-self: flex-end;
+      padding: 6px 14px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.26);
+      background: rgba(0,0,0,0.6);
+      color: #e6f1ff;
+      font-size: 13px;
+      cursor: pointer;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+    }
+    .settings-close-btn:hover {
+      background: rgba(255,255,255,0.08);
+    }
+
+    /* Simple FPS + player state HUD (toggled by settings) */
+    #fpsCounter {
+      position: fixed;
+      left: 12px;
+      bottom: 70px;
+      background: rgba(0,0,0,0.55);
+      padding: 4px 8px;
+      border-radius: 6px;
+      font-size: 12px;
+      color: #e6f1ff;
+      z-index: 35;
+      border: 1px solid rgba(255,255,255,0.04);
+      display: none;
+    }
+    #playerState {
+      position: fixed;
+      right: 12px;
+      top: 48px;
+      background: rgba(0,0,0,0.55);
+      padding: 4px 8px;
+      border-radius: 6px;
+      font-size: 12px;
+      color: #e6f1ff;
+      z-index: 35;
+      border: 1px solid rgba(255,255,255,0.04);
+      display: none;
+    }
+
+  </style>
+</head>
+<body>
+  <!-- Power button UI -->
+  <div id="power0" class="power">
+    <div id="power0CD" class="coolDown"></div>
+    <div id="power0Heat" class="heat"></div>
+    <img id="power0Img" src="https://skap.io/textures/powers/shrinker.svg" class="powerImage">
+    <div class="selectclip">
+      <div id="power0select" class="select">
+        <div class="poweroption hidden" data-slot="0" data-power="0">
+          <img src="https://skap.io/textures/powers/shrinker.svg" width="40" height="40" />
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- FPS + player state HUD (driven by settings) -->
+  <div id="fpsCounter">FPS: 0</div>
+  <div id="playerState">State: Alive</div>
+
+  <!-- Settings overlay (opened with Escape) -->
+  <div id="settingsOverlay">
+    <div class="settings-panel">
+      <h2 class="settings-title">Settings</h2>
+
+      <!-- Graphics -->
+      <section class="settings-section">
+        <h3 class="rainbow-heading">Graphics</h3>
+
+        <label class="settings-row">
+          <span>Player interpolation</span>
+          <input type="checkbox" id="opt-playerInterpolation">
+        </label>
+
+        <div class="settings-row">
+          <span>Network usage</span>
+          <div class="settings-inline-options">
+            <label><input type="radio" name="networkUsage" value="high" id="net-high"> High</label>
+            <label><input type="radio" name="networkUsage" value="medium" id="net-medium"> Medium</label>
+            <label><input type="radio" name="networkUsage" value="low" id="net-low"> Low</label>
+          </div>
+        </div>
+
+        <label class="settings-row">
+          <span>Show FPS</span>
+          <input type="checkbox" id="opt-showFPS">
+        </label>
+
+        <label class="settings-row">
+          <span>Key overlay</span>
+          <input type="checkbox" id="opt-keyOverlay">
+        </label>
+
+        <label class="settings-row">
+          <span>Diagnostics</span>
+          <input type="checkbox" id="opt-diagnostics">
+        </label>
+      </section>
+
+      <!-- Player -->
+      <section class="settings-section">
+        <h3 class="rainbow-heading">Player</h3>
+
+        <div class="settings-row">
+          <span>Color</span>
+          <div class="color-row">
+            <input type="color" id="playerColorPicker">
+            <input type="text" id="playerColorHex" placeholder="#086699">
+          </div>
+        </div>
+
+        <label class="settings-row">
+          <span>Hitbox</span>
+          <input type="checkbox" id="opt-hitbox">
+        </label>
+
+        <label class="settings-row">
+          <span>Display state of player<br><small>(says if you are dead or not)</small></span>
+          <input type="checkbox" id="opt-playerState">
+        </label>
+      </section>
+
+      <!-- Keybinds -->
+      <section class="settings-section">
+        <h3 class="rainbow-heading">Keybinds</h3>
+
+        <div class="keybind-grid">
+          <div class="keybind-row">
+            <span class="keybind-label">Up</span>
+            <button type="button" class="keybind-btn" data-action="up">W</button>
+          </div>
+          <div class="keybind-row">
+            <span class="keybind-label">Down</span>
+            <button type="button" class="keybind-btn" data-action="down">S</button>
+          </div>
+          <div class="keybind-row">
+            <span class="keybind-label">Left</span>
+            <button type="button" class="keybind-btn" data-action="left">A</button>
+          </div>
+          <div class="keybind-row">
+            <span class="keybind-label">Right</span>
+            <button type="button" class="keybind-btn" data-action="right">D</button>
+          </div>
+          <div class="keybind-row">
+            <span class="keybind-label">Power 1</span>
+            <button type="button" class="keybind-btn" data-action="power1">E</button>
+          </div>
+          <div class="keybind-row">
+            <span class="keybind-label">Power 2</span>
+            <button type="button" class="keybind-btn" data-action="power2">F</button>
+          </div>
+          <div class="keybind-row">
+            <span class="keybind-label">Hitboxes</span>
+            <button type="button" class="keybind-btn" data-action="hitboxes">O</button>
+          </div>
+        </div>
+
+        <div class="settings-note">
+          Each one has a space where you can click, then press the button you want to bind it to.<br>
+          Defaults are: up = W, down = S, left = A, right = D, power1 = E, power2 = F, hitboxes = O.
+          All of this is stored in localStorage and reloaded automatically.
+        </div>
+      </section>
+
+      <button id="settingsCloseBtn" class="settings-close-btn">Close (Esc)</button>
+    </div>
+  </div>
+
+  <!-- Key overlay -->
+  <div id="key-overlay">
+    <div class="key-box" data-key="ShiftLeft" id="shift">Shift</div>
+    <div class="key-box" data-key="KeyW" id="up">Up</div>
+    <div class="key-box" data-key="Space" id="space">Space</div>
+    <div class="key-box" data-key="KeyA" id="left">Left</div>
+    <div class="key-box" data-key="KeyS" id="down">Down</div>
+    <div class="key-box" data-key="KeyD" id="right">Right</div>
+  </div>
+  <script>
+    const overlayKeys = {
+      ShiftLeft: document.getElementById('shift'),
+      KeyW: document.getElementById('up'),
+      Space: document.getElementById('space'),
+      KeyA: document.getElementById('left'),
+      KeyS: document.getElementById('down'),
+      KeyD: document.getElementById('right'),
+    };
+    window.addEventListener('keydown', (e) => { if (overlayKeys[e.code]) overlayKeys[e.code].classList.add('pressed'); });
+    window.addEventListener('keyup', (e) => { if (overlayKeys[e.code]) overlayKeys[e.code].classList.remove('pressed'); });
+  </script>
+
+  <!-- Render surface -->
+  <canvas id="game"></canvas>
+
+  <!-- Stamina bar -->
+  <div id="fuelBarWrap"><div id="fuelBarInner"></div></div>
+
+  <!-- Coords -->
+  <div id="coords">Coords: 0, 0</div>
+
+  <!-- Stats HUD bottom-left -->
+  <div id="statHUD">pos: 0, 0<br>vel: 0, 0 (0.000)</div>
+
+  <!-- Placement menu -->
+  <div id="placementMenu">
+    <h3>Placement Menu (T to toggle)</h3>
+    <div class="placeBtn selected" data-type="line" id="sel-line">
+      <div style="width:20px;height:12px;background:#fff;border-radius:3px;"></div>
+      <div>White Platform (line)</div>
+    </div>
+    <div class="placeBtn" data-type="blueplatform" id="sel-blue">
+      <div style="width:20px;height:12px;background:#2b7bff;border-radius:3px;"></div>
+      <div>Blue Platform (blueplatform)</div>
+    </div>
+    <div class="placeBtn" data-type="killbrick" id="sel-kill">
+      <div style="width:18px;height:18px;background:#ff3b3b;"></div>
+      <div>Kill Brick (killbrick)</div>
+    </div>
+    <label style="display:flex;align-items:center;gap:6px;margin-top:4px;font-size:13px;">
+      <input type="checkbox" id="killbrickGridSnap" checked> Grid Snap Killbrick
+    </label>
+    <div class="hint">Click to place at snapped grid (gridSize = 100). Use mouse wheel to change length for lines.</div>
+  </div>
+
+  <!-- Power button UI (duplicate of original) -->
+  <div id="power0" class="power">
+    <div id="power0CD" class="coolDown"></div>
+    <div id="power0Heat" class="heat"></div>
+    <img id="power0Img" src="https://skap.io/textures/powers/shrinker.svg" class="powerImage">
+    <div class="selectclip">
+      <div id="power0select" class="select">
+        <div class="poweroption hidden" data-slot="0" data-power="0">
+          <img src="https://skap.io/textures/powers/shrinker.svg" width="40" height="40" />
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /* ===== Config ===== */
+    const CONFIG = {
+      gravity: 950,
+      jetpackThrust: -1600,
+      maxUpSpeed: -480,          // was -600, lower = not as high
+      maxDownSpeed: 240,
+      maxDownSpeedFast: 1100,
+      gravityFast: 2000,
+      maxSpeedX: 350,
+      accelX: 2400,
+      friction: 900,
+      frictionAir: 220,
+      playerSize: 40,
+      startX: 200, startY: 200,
+      staminaMax: 3.0,
+      staminaConsumeRate: 1.111111111111111,  // drains in exactly 2.7s when holding W
+      staminaRegenRate: 3.0,
+      gridSize: 100,
+      zoomStep: 0.2, minZoom: 0.5, maxZoom: 3, zoomLerp: 0.12, camLerp: 0.14,
+      platformThickness: 12,
+    };
+
+    /* ===== Globals ===== */
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d', { alpha: false });
+    let w = canvas.width = innerWidth;
+    let h = canvas.height = innerHeight;
+
+    let keys = {};
+    let mouse = { x:0, y:0, down:false, wheelDelta:0 };
+    const fuelBarInner = document.getElementById('fuelBarInner');
+    const coordsEl = document.getElementById('coords');
+    const statHUD = document.getElementById('statHUD');
+
+    const BOOST = {
+      accelMul: 1.5,
+      jetMul: 1.5,
+      gravityMul: 1.0,
+      diagSpeedMul: 1.08,
+      upDiagVerticalBias: 1.20,
+      upDiagHorizBias: 0.92,
+      overshoot: 1.03,
+      windowMs: 120
+    };
+    const SPRINT = {
+      xImpulse: 820,
+      xAirMul: 1.15,
+      xFallMul: 1.35,
+      xOvershoot: 1.15,
+      xOvershootMs: 220,
+
+      downRampMs: 180,
+      downRampAdd: 360,
+
+      upGlideMs: 520,
+      upGlideMinMul: 0.38,
+      upCost: 0.12,
+
+      upImpulse: 900,
+      downAdd: 420,
+
+      overshoot: 1.06,
+      overshootMs: 160,
+
+      fallEaseMs: 360,
+      fallEaseMinMul: 0.45
+    };
+
+    let spaceBoostUntil = 0;
+    let xBoostUntil = 0;
+    let lastSprintAt = -1;
+    let downRampUntil = 0, downRampAccel = 0;
+    let upGlideStart = -1;
+    const SHIFT = { costFrac: 1/17, haltMs: 50 };
+    let jetGlideStart = -1;
+    const JETGLIDE = { ms: 750, minMul: 0.22 }; // more glide, softer gravity
+    const placementMenu = document.getElementById('placementMenu');
+    const placeButtons = document.querySelectorAll('.placeBtn');
+    const killbrickGridSnapEl = document.getElementById('killbrickGridSnap');
+
+    let placementOpen = false;
+    let placementType = 'line';
+    let currentLineLength = CONFIG.gridSize;
+    let placedObjects = [];
+
+    let sprintBoostPending = null;
+    let sprintBoostLock = false;
+    let sprintActiveTimer = 0;
+    let lastMoveDir = {dx: 1, dy: 0};
+
+    let player = { x: CONFIG.startX, y: CONFIG.startY, vx: 0, vy: 0, size: CONFIG.playerSize, onGround: false, stamina: CONFIG.staminaMax };
+
+    // Jetpack-style particles for the ball (Skap-like trail)
+    const jetpackParticles = [];
+    let jetpackSpawnAccumulator = 0;
+    const MAX_JETPACK_PARTICLES = 400;
+
+    let haltUntil = 0;
+
+    let cam = { x: player.x, y: player.y };
+    let zoom = 1;
+    let targetZoom = 1;
+
+    window.canvas = canvas;
+    window.ctx = ctx;
+    window.player = player;
+    window.cam = cam;
+    window.zoom = zoom;
+
+    let lastTime = performance.now();
+
+    let __prevUsingJet = false;
+
+    // NEW: W hold time → variable jump height
+    let jetHoldTime = 0;
+    const MAX_JET_HOLD = 0.25; // seconds of full upward thrust for a max jump
+
+    function resize() { w = canvas.width = innerWidth; h = canvas.height = innerHeight; }
+    addEventListener('resize', resize);
+
+    /* ===== Input ===== */
+    addEventListener('keydown', e => {
+      keys[e.key.toLowerCase()] = true;
+
+      if (e.key === 'Shift' || e.key === 'ShiftLeft' || e.key === 'ShiftRight') {
+        player.vx = 0; player.vy = 0;
+        haltUntil = performance.now() + 50;
+      }
+
+      if (["w","a","s","d"].includes(e.key.toLowerCase())) {
+        let dx = 0, dy = 0;
+        if (keys['w']) dy -= 1;
+        if (keys['s']) dy += 1;
+        if (keys['a']) dx -= 1;
+        if (keys['d']) dx += 1;
+        if (dx !== 0 || dy !== 0) {
+          let mag = Math.sqrt(dx*dx + dy*dy);
+          lastMoveDir = {dx: dx/mag, dy: dy/mag};
+        }
+      }
+
+      if (!sprintBoostLock && keys[' '] && (["w","a","s","d"].includes(e.key.toLowerCase()))) {
+        sprintBoostPending = true;
+        sprintBoostLock = true;
+      }
+
+      if (e.key.toLowerCase() === 't') { placementOpen = !placementOpen; placementMenu.style.display = placementOpen ? 'block' : 'none'; }
+      if (e.key.toLowerCase() === 'r') { resetPlayer(); }
+      if (e.key.toLowerCase() === 'u') { targetZoom = Math.max(CONFIG.minZoom, targetZoom - CONFIG.zoomStep); }
+      if (e.key.toLowerCase() === 'i') { targetZoom = Math.min(CONFIG.maxZoom, targetZoom + CONFIG.zoomStep); }
+    });
+
+    addEventListener('keyup', e => {
+      delete keys[e.key.toLowerCase()];
+      const k = e.key.toLowerCase();
+      if (["w","a","s","d"," "].includes(k)) { sprintBoostLock = false; }
+    });
+
+    canvas.addEventListener('mousemove', e => {
+      const rect = canvas.getBoundingClientRect();
+      mouse.x = e.clientX - rect.left;
+      mouse.y = e.clientY - rect.top;
+    });
+    canvas.addEventListener('mousedown', e => { mouse.down = true; if (placementOpen) placeObjectAtMouse(); });
+    canvas.addEventListener('mouseup', e => mouse.down = false);
+
+    canvas.addEventListener('wheel', e => {
+      e.preventDefault();
+      const delta = Math.sign(e.deltaY);
+      if (placementOpen && (placementType === 'line' || placementType === 'blueplatform')) {
+        currentLineLength = Math.max(CONFIG.gridSize, currentLineLength + (-delta * CONFIG.gridSize));
+      } else {
+        if (e.ctrlKey) targetZoom = clamp(targetZoom + (-delta * 0.12), CONFIG.minZoom, CONFIG.maxZoom);
+      }
+    }, { passive:false });
+
+    placeButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        placeButtons.forEach(b => b.classList.remove('selected'));
+        btn.classList.add('selected');
+        placementType = btn.dataset.type;
+      });
+    });
+
+    /* ===== Utils ===== */
+    function clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
+    function lerp(a,b,t){ return a + (b-a)*t; }
+
+    function screenToWorld(sx, sy) {
+      const worldX = cam.x + ((sx - w/2) / zoom);
+      const worldY = cam.y + ((sy - h/2) / zoom);
+      return { x: worldX, y: worldY };
+    }
+    function worldToScreen(wx, wy) {
+      return { x: ((wx - cam.x) * zoom) + w/2, y: ((wy - cam.y) * zoom) + h/2 };
+    }
+
+    function updateJetpackParticles(dt) {
+      const dtScale = dt * 60;
+      for (let i = jetpackParticles.length - 1; i >= 0; i--) {
+        const p = jetpackParticles[i];
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.hue += 10 * dtScale;
+        p.s *= Math.pow(0.95, dtScale);
+        p.o -= 0.02 * dtScale;
+        if (p.o <= 0 || p.s <= 1) {
+          jetpackParticles.splice(i, 1);
+        }
+      }
+    }
+
+    function placeObjectAtMouse() {
+      const world = screenToWorld(mouse.x, mouse.y);
+      const gs = CONFIG.gridSize;
+
+      if (placementType === 'line' || placementType === 'blueplatform') {
+        placedObjects.push({
+          type: placementType,
+          x: Math.round(world.x / gs) * gs,
+          y: Math.round(world.y / gs) * gs,
+          length: currentLineLength
+        });
+      } else if (placementType === 'killbrick') {
+        if (killbrickGridSnapEl && killbrickGridSnapEl.checked) {
+          const snapX = Math.floor(world.x / gs) * gs + gs/2;
+          const snapY = Math.floor(world.y / gs) * gs + gs/2;
+          placedObjects.push({ type: 'killbrick', x: snapX, y: snapY, size: gs });
+        } else {
+          placedObjects.push({ type: 'killbrick', x: world.x, y: world.y, size: gs });
+        }
+      }
+    }
+
+    function resetPlayer() {
+      player.x = CONFIG.startX; player.y = CONFIG.startY;
+      player.vx = 0; player.vy = 0;
+      player.stamina = CONFIG.staminaMax;
+    }
+
+    function currentIntent() {
+      const left = !!keys['a'], right = !!keys['d'];
+      const up   = !!keys['w'], down  = !!keys['s'];
+      let vx = 0, vy = 0;
+      if (left) vx -= 1;
+      if (right) vx += 1;
+      if (up) vy -= 1;
+      if (down) vy += 1;
+      const m = Math.hypot(vx, vy) || 1;
+      return {vx: vx/m, vy: vy/m, raw:{left,right,up,down}};
+    }
+
+    function doSprintImpulse() {
+      const intent = currentIntent();
+      if (intent.vx === 0 && intent.vy === 0) return false;
+
+      const noFuelInAir = (player.stamina <= 0 && !player.onGround);
+      if (noFuelInAir && !intent.raw.down) {
+        return false;
+      }
+
+      const now = performance.now();
+
+      if (intent.vx !== 0) {
+        let imp = SPRINT.xImpulse;
+        if (!player.onGround) {
+          imp *= (player.vy > 0) ? SPRINT.xFallMul : SPRINT.xAirMul;
+        }
+        player.vx = intent.vx * imp;
+        xBoostUntil = now + SPRINT.xOvershootMs;
+      }
+
+      if (intent.raw.up) {
+        if (player.stamina > 0) {
+          player.vy = -SPRINT.upImpulse;
+          upGlideStart = now;
+        }
+      } else if (intent.raw.down) {
+        if (!player.onGround) {
+          const rampSec = Math.max(0.001, SPRINT.downRampMs / 1000);
+          downRampAccel = SPRINT.downRampAdd / rampSec;
+          downRampUntil = now + SPRINT.downRampMs;
+        }
+      }
+
+      spaceBoostUntil = now + Math.max(BOOST.windowMs, SPRINT.overshootMs);
+      lastSprintAt = now;
+      return true;
+    }
+
+    addEventListener('keydown', (e) => {
+      if (e.code === 'Space' || e.key === ' ') {
+        spaceBoostUntil = performance.now() + Math.max(BOOST.windowMs, SPRINT.overshootMs);
+        doSprintImpulse();
+      }
+    });
+    addEventListener('keydown', (e) => {
+      const k = e.key?.toLowerCase();
+      if (k && ['w','a','s','d'].includes(k) && (keys[' '] || e.code === 'Space')) {
+        doSprintImpulse();
+      }
+    });
+
+    function update(dt) {
+      const now = performance.now();
+      const spaceDown = !!keys[' '];
+      if (player.stamina <= 0) upGlideStart = -1;
+      const boostActive = spaceDown;
+      const overshootActive = now < spaceBoostUntil;
+
+      if (haltUntil > now) {
+        player.vx = 0; player.vy = 0;
+        cam.x = player.x; cam.y = player.y - player.size / 2;
+        zoom = lerp(zoom, targetZoom, CONFIG.zoomLerp);
+        fuelBarInner.style.width = (player.stamina / CONFIG.staminaMax * 100) + '%';
+        coordsEl.textContent = `Coords: ${Math.round(player.x)}, ${Math.round(player.y)}`;
+        if (statHUD) {
+          const sp0 = Math.hypot(player.vx, player.vy).toFixed(3);
+          statHUD.innerHTML = `pos: ${Math.round(player.x)}, ${Math.round(player.y)}<br>vel: ${Math.round(player.vx)}, ${Math.round(player.vy)} (${sp0})`;
+        }
+        return;
+      }
+
+      const left = !!keys['a'];
+      const right = !!keys['d'];
+      const upIntent = !!keys['w'];
+      const downIntent = !!keys['s'];
+      const horizIntent = left || right;
+      const diagIntent = horizIntent && (upIntent || downIntent);
+
+      // track how long W is held for variable jump height
+      if (upIntent) {
+        jetHoldTime += dt;
+      } else {
+        jetHoldTime = 0;
+      }
+
+      const usingJet = upIntent && player.stamina > 0 && jetHoldTime < MAX_JET_HOLD;
+
+      if (!usingJet && __prevUsingJet) { jetGlideStart = performance.now(); }
+
+      // horizontal
+      let ax = 0;
+      if (left && !right) ax = -CONFIG.accelX;
+      else if (right && !left) ax = CONFIG.accelX;
+      else {
+        const fr = player.onGround ? CONFIG.friction : (CONFIG.frictionAir ?? CONFIG.friction*0.25);
+        if (player.vx > 0) ax = -fr;
+        else if (player.vx < 0) ax = fr;
+        else ax = 0;
+      }
+      if (boostActive) ax *= BOOST.accelMul;
+      if (diagIntent) ax *= BOOST.diagSpeedMul;
+      if (boostActive && diagIntent && upIntent) ax *= BOOST.upDiagHorizBias;
+
+      player.vx += ax * dt;
+      if (!left && !right) {
+        if (Math.sign(player.vx) !== Math.sign(player.vx - ax * dt) && Math.abs(player.vx) < 20) player.vx = 0;
+      }
+      const xOvershootActive = now < xBoostUntil;
+      const maxX = CONFIG.maxSpeedX * ((overshootActive || xOvershootActive) ? Math.max(BOOST.overshoot, SPRINT.overshoot, SPRINT.xOvershoot) : 1);
+      player.vx = clamp(player.vx, -maxX, maxX);
+
+      if (downRampUntil > now && !player.onGround) {
+        player.vy += downRampAccel * dt;
+      }
+
+      const fastFall = downIntent;
+
+      // glides
+      let upGlideMul = 1.0;
+      if (upGlideStart >= 0 && now - upGlideStart < SPRINT.upGlideMs && player.vy < 0) {
+        const a = Math.min(1, (now - upGlideStart) / SPRINT.upGlideMs);
+        upGlideMul = Math.min(upGlideMul, SPRINT.upGlideMinMul + (1 - SPRINT.upGlideMinMul) * a);
+      }
+      if (jetGlideStart >= 0 && now - jetGlideStart < JETGLIDE.ms && !fastFall) {
+        const b = Math.min(1, (now - jetGlideStart) / JETGLIDE.ms);
+        const mul = JETGLIDE.minMul + (1 - JETGLIDE.minMul) * b;
+        upGlideMul = Math.min(upGlideMul, mul);
+      }
+
+      let fallEaseMul = 1.0;
+      if (player.vy > 0 && lastSprintAt >= 0) {
+        const t = now - lastSprintAt;
+        if (t < SPRINT.fallEaseMs) {
+          const a = Math.min(1, t / SPRINT.fallEaseMs);
+          fallEaseMul = SPRINT.fallEaseMinMul + (1 - SPRINT.fallEaseMinMul) * a;
+        }
+      }
+
+      if (usingJet) {
+        player.stamina = Math.max(0, player.stamina - CONFIG.staminaConsumeRate * dt);
+        let jetMul = boostActive ? BOOST.jetMul : 1;
+        if (boostActive && diagIntent && upIntent) jetMul *= BOOST.upDiagVerticalBias;
+        player.vy += CONFIG.jetpackThrust * dt * jetMul;
+      } else if (fastFall) {
+        let gMul = (boostActive ? BOOST.gravityMul : 1) * fallEaseMul;
+        if (diagIntent && downIntent) gMul *= BOOST.diagSpeedMul;
+        player.vy += CONFIG.gravityFast * dt * gMul * upGlideMul;
+      } else {
+        let gMul = (boostActive ? BOOST.gravityMul : 1) * fallEaseMul;
+        player.vy += CONFIG.gravity * dt * gMul * upGlideMul;
+      }
+
+      const vyMin = CONFIG.maxUpSpeed * (overshootActive ? Math.max(BOOST.overshoot, SPRINT.overshoot) : 1);
+      const vyMaxBase = fastFall ? CONFIG.maxDownSpeedFast : CONFIG.maxDownSpeed;
+      const vyMax = vyMaxBase * (overshootActive ? Math.max(BOOST.overshoot, SPRINT.overshoot) : 1);
+      player.vy = clamp(player.vy, vyMin, vyMax);
+
+      // jetpack particles (less, side-offset, 70% opacity)
+      if (usingJet) {
+        const dtScale = dt * 60;
+        jetpackSpawnAccumulator += 1.0 * dtScale; // fewer particles
+
+        let spawnCount = Math.floor(jetpackSpawnAccumulator);
+        if (spawnCount > 0) {
+          spawnCount = Math.min(spawnCount, 2); // never more than 2 per frame
+          jetpackSpawnAccumulator -= spawnCount;
+
+          for (let i = 0; i < spawnCount; i++) {
+            const spread = 0.7;
+            const dir = Math.PI / 2 + (Math.random() - 0.5) * spread;
+            const speed = 120 + Math.random() * 80;
+
+            const sideOffset = (Math.random() - 0.5) * 30;      // ~±15px side
+            const verticalJitter = (Math.random() - 0.5) * 10;  // slight up/down
+
+            const baseW = player.size * 1.4;
+            const baseH = player.size * 0.30;
+
+            jetpackParticles.push({
+              x: player.x + sideOffset,
+              y: player.y + player.size * 0.3 + verticalJitter,
+              vx: Math.cos(dir) * speed,
+              vy: Math.sin(dir) * speed,
+              hue: 120,
+              s: 100,
+              w: baseW,
+              h: baseH,
+              o: 0.7   // start at 70% opacity
+            });
+          }
+
+          if (jetpackParticles.length > MAX_JETPACK_PARTICLES) {
+            jetpackParticles.splice(0, jetpackParticles.length - MAX_JETPACK_PARTICLES);
+          }
+        }
+      }
+
+      player.x += player.vx * dt;
+      player.y += player.vy * dt;
+
+      player.onGround = false;
+      const half = player.size / 2;
+      const px1 = player.x - half, px2 = player.x + half;
+      const py1 = player.y - half, py2 = player.y + half;
+
+      placedObjects.forEach(obj => {
+        if ((obj.type === 'blueplatform' && obj.visible === false)) return;
+
+        if (obj.type === 'line' || obj.type === 'blueplatform') {
+          const len = obj.length || CONFIG.gridSize;
+          const leftX = obj.x - len/2, rightX = obj.x + len/2;
+          const topY = obj.y - CONFIG.platformThickness/2, bottomY = obj.y + CONFIG.platformThickness/2;
+
+          const overlapX = px2 > leftX && px1 < rightX;
+          const overlapY = py2 > topY && py1 < bottomY;
+
+          if (overlapX && overlapY) {
+            if (player.vy >= 0 && (player.y - half) < bottomY && (player.y + half) > topY) {
+              player.y = topY - half; player.vy = 0; player.onGround = true;
+            } else if (player.vy < 0 && (player.y + half) > topY && (player.y - half) < bottomY) {
+              player.y = bottomY + half; player.vy = 0;
+            } else {
+              const penTop = bottomY - py1;
+              const penBottom = py2 - topY;
+              if (penTop < penBottom) { player.y += penTop; } else { player.y -= penBottom; }
+            }
+          }
+        } else if (obj.type === 'killbrick') {
+          const s = obj.size || CONFIG.gridSize;
+          const leftX = obj.x - s/2, rightX = obj.x + s/2;
+          const topY = obj.y - s/2, bottomY = obj.y + s/2;
+          if (px2 > leftX && px1 < rightX && py2 > topY && py1 < bottomY) { resetPlayer(); }
+        }
+      });
+
+      if (player.onGround && !upIntent) {
+        player.stamina = clamp(player.stamina + CONFIG.staminaRegenRate * dt, 0, CONFIG.staminaMax);
+      }
+
+      updateJetpackParticles(dt);
+
+      cam.x = player.x; cam.y = player.y - player.size / 2;
+      zoom = lerp(zoom, targetZoom, CONFIG.zoomLerp);
+
+      window.player = player;
+      window.cam = cam;
+      window.zoom = zoom;
+
+      fuelBarInner.style.width = (player.stamina / CONFIG.staminaMax * 100) + '%';
+      coordsEl.textContent = `Coords: ${Math.round(player.x)}, ${Math.round(player.y)}`;
+      if (statHUD) {
+        const sp = Math.hypot(player.vx, player.vy).toFixed(3);
+        statHUD.innerHTML = `pos: ${Math.round(player.x)}, ${Math.round(player.y)}<br>vel: ${Math.round(player.vx)}, ${Math.round(player.vy)} (${sp})`;
+      }
+
+      __prevUsingJet = usingJet;
+    }
+
+    function draw() {
+      ctx.fillStyle = '#0b0b0c'; ctx.fillRect(0,0,w,h);
+
+      ctx.save();
+      ctx.translate(w/2, h/2);
+      ctx.scale(zoom, zoom);
+      ctx.translate(-cam.x, -cam.y);
+
+      drawGrid();
+
+      placedObjects.forEach(obj => {
+        if (obj.type === 'line' || obj.type === 'blueplatform') {
+          ctx.lineWidth = CONFIG.platformThickness;
+          ctx.lineCap = 'round';
+          ctx.strokeStyle = obj.type === 'blueplatform' ? '#2b7bff' : '#ffffff';
+          ctx.beginPath();
+          ctx.moveTo(obj.x - (obj.length/2), obj.y);
+          ctx.lineTo(obj.x + (obj.length/2), obj.y);
+          ctx.stroke();
+        } else if (obj.type === 'killbrick') {
+          const s = obj.size || CONFIG.gridSize;
+          ctx.fillStyle = '#ff3b3b';
+          ctx.fillRect(obj.x - s/2, obj.y - s/2, s, s);
+        }
+      });
+
+      // jetpack particles (behind player)
+      for (const p of jetpackParticles) {
+        if (p.o <= 0) continue;
+        ctx.globalAlpha = Math.min(0.7, p.o); // cap at 70% opacity
+        ctx.fillStyle = `hsl(${p.hue}, ${p.s}%, 60%)`;
+        ctx.fillRect(p.x - p.w / 2, p.y - p.h / 2, p.w, p.h);
+      }
+      ctx.globalAlpha = 1;
+
+      // player (base color, will be over-drawn by settings script)
+      ctx.beginPath();
+      const pr = player.size / 2;
+      ctx.fillStyle = '#086699';
+      ctx.arc(player.x, player.y, pr, 0, Math.PI*2);
+      ctx.fill();
+
+      ctx.restore();
+
+      ctx.save();
+      ctx.font = '12px system-ui, -apple-system, "Segoe UI", Roboto';
+      ctx.fillStyle = 'rgba(220,230,255,0.75)';
+      ctx.fillText('W = jetpack | A/D = move | U/I = zoom out/in | T = placement | R = reset', 12, h - 24);
+      ctx.restore();
+
+      if (placementOpen) {
+        const world = screenToWorld(mouse.x, mouse.y);
+        const gs = CONFIG.gridSize;
+        let snapX, snapY;
+
+        if (placementType === 'killbrick' && !(killbrickGridSnapEl && killbrickGridSnapEl.checked)) {
+          snapX = world.x; snapY = world.y;
+        } else if (placementType === 'killbrick' && killbrickGridSnapEl && killbrickGridSnapEl.checked) {
+          snapX = Math.floor(world.x / gs) * gs + gs/2;
+          snapY = Math.floor(world.y / gs) * gs + gs/2;
+        } else {
+          snapX = Math.round(world.x / gs) * gs;
+          snapY = Math.round(world.y / gs) * gs;
+        }
+
+        ctx.save();
+        const scr = worldToScreen(snapX, snapY);
+        if (placementType === 'killbrick') {
+          const s = gs;
+          ctx.fillStyle = 'rgba(255,59,59,0.35)';
+          ctx.fillRect(scr.x - (s/2)*zoom, scr.y - (s/2)*zoom, s*zoom, s*zoom);
+          ctx.strokeStyle = 'rgba(255,59,59,0.9)';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(scr.x - (s/2)*zoom, scr.y - (s/2)*zoom, s*zoom, s*zoom);
+        } else {
+          const len = currentLineLength;
+          const left = worldToScreen(snapX - len/2, snapY);
+          const right = worldToScreen(snapX + len/2, snapY);
+          ctx.strokeStyle = placementType === 'blueplatform' ? 'rgba(43,123,255,0.9)' : 'rgba(255,255,255,0.9)';
+          ctx.lineWidth = CONFIG.platformThickness * zoom;
+          ctx.lineCap = 'round';
+          ctx.beginPath();
+          ctx.moveTo(left.x, left.y);
+          ctx.lineTo(right.x, right.y);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+    }
+
+    function drawGrid() {
+      const gs = CONFIG.gridSize;
+      const left = cam.x - (w/2)/zoom - gs*2;
+      const right = cam.x + (w/2)/zoom + gs*2;
+      const top = cam.y - (h/2)/zoom - gs*2;
+      const bottom = cam.y + (h/2)/zoom + gs*2;
+
+      ctx.lineWidth = 1 / zoom;
+      ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+      ctx.beginPath();
+      const startVX = Math.floor(left / gs) * gs;
+      for (let x = startVX; x <= right; x += gs) { ctx.moveTo(x, top); ctx.lineTo(x, bottom); }
+      const startHY = Math.floor(top / gs) * gs;
+      for (let y = startHY; y <= bottom; y += gs) { ctx.moveTo(left, y); ctx.lineTo(right, y); }
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+      ctx.lineWidth = 1.5 / zoom;
+      ctx.moveTo(0, top); ctx.lineTo(0, bottom);
+      ctx.moveTo(left, 0); ctx.lineTo(right, 0);
+      ctx.stroke();
+    }
+
+    function loop(now) {
+      const dt = Math.min(0.032, (now - lastTime) / 1000);
+      lastTime = now;
+      update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+    requestAnimationFrame(loop);
+
+    placedObjects.push({ type: 'line', x: 200, y: 520, length: 1000 });
+    placedObjects.push({ type: 'blueplatform', x: 700, y: 420, length: 300 });
+    placedObjects.push({ type: 'line', x: 1100, y: 300, length: 600 });
+    placedObjects.push({ type: 'killbrick', x: 900, y: 540, size: CONFIG.gridSize });
+  </script>
+
+  <!-- Shrink power -->
+  <script>
+    let isShrunk = false;
+    let shrinkFactor = 0.7;
+    let shrinkYOffset = 0;
+    document.getElementById('power0').addEventListener('click', function() {
+      if (!isShrunk) {
+        let oldSize = player.size;
+        player.size = CONFIG.playerSize * shrinkFactor;
+        shrinkYOffset = (oldSize - player.size) / 2;
+        player.y += shrinkYOffset;
+        isShrunk = true;
+      } else {
+        player.y -= shrinkYOffset;
+        player.size = CONFIG.playerSize;
+        isShrunk = false;
+      }
+    });
+  </script>
+
+  <!-- Settings + keybinds handling -->
+  <script>
+    (function() {
+      const STORAGE_KEY = 'jp_settings_v1';
+
+      const DEFAULT = {
+        graphics: {
+          playerInterpolation: false,
+          networkUsage: 'high',
+          showFPS: false,
+          keyOverlay: true,
+          diagnostics: true
+        },
+        player: {
+          color: '#086699',
+          showHitbox: false,
+          showState: false
+        },
+        keybinds: {
+          up: 'w',
+          down: 's',
+          left: 'a',
+          right: 'd',
+          power1: 'e',
+          power2: 'f',
+          hitboxes: 'o'
+        }
+      };
+
+      function mergeSettings(base, override) {
+        const out = JSON.parse(JSON.stringify(base));
+        if (!override || typeof override !== 'object') return out;
+        for (const k in override) {
+          if (!(k in out)) out[k] = override[k];
+          else if (typeof out[k] === 'object' && out[k] && !Array.isArray(out[k])) {
+            out[k] = mergeSettings(out[k], override[k]);
+          } else {
+            out[k] = override[k];
+          }
+        }
+        return out;
+      }
+
+      function loadSettings() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (!raw) return JSON.parse(JSON.stringify(DEFAULT));
+          return mergeSettings(DEFAULT, JSON.parse(raw));
+        } catch (e) {
+          return JSON.parse(JSON.stringify(DEFAULT));
+        }
+      }
+
+      function saveSettings() {
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+        } catch (e) {}
+      }
+
+      let settings = loadSettings();
+
+      const overlay = document.getElementById('settingsOverlay');
+      if (!overlay) return;
+
+      const closeBtn = document.getElementById('settingsCloseBtn');
+      const keyOverlayEl = document.getElementById('key-overlay');
+      const statHUDEl = document.getElementById('statHUD');
+      const fpsEl = document.getElementById('fpsCounter');
+      const playerStateEl = document.getElementById('playerState');
+
+      const chkPlayerInterp = document.getElementById('opt-playerInterpolation');
+      const chkShowFPS = document.getElementById('opt-showFPS');
+      const chkKeyOverlay = document.getElementById('opt-keyOverlay');
+      const chkDiagnostics = document.getElementById('opt-diagnostics');
+      const netHigh = document.getElementById('net-high');
+      const netMedium = document.getElementById('net-medium');
+      const netLow = document.getElementById('net-low');
+
+      const colorPicker = document.getElementById('playerColorPicker');
+      const colorHexInput = document.getElementById('playerColorHex');
+      const chkHitbox = document.getElementById('opt-hitbox');
+      const chkPlayerState = document.getElementById('opt-playerState');
+
+      const keyButtons = Array.from(document.querySelectorAll('.keybind-btn'));
+
+      let settingsOpen = false;
+      let listeningFor = null;
+
+      function formatKeyLabel(key) {
+        if (!key) return 'Unbound';
+        if (key === ' ' || key === 'Space') return 'Space';
+        if (key.toLowerCase && key.toLowerCase() === 'shift') return 'Shift';
+        if (key.length === 1) return key.toUpperCase();
+        return key;
+      }
+
+      function syncUI() {
+        if (chkPlayerInterp) chkPlayerInterp.checked = !!settings.graphics.playerInterpolation;
+        if (chkShowFPS) chkShowFPS.checked = !!settings.graphics.showFPS;
+        if (chkKeyOverlay) chkKeyOverlay.checked = !!settings.graphics.keyOverlay;
+        if (chkDiagnostics) chkDiagnostics.checked = !!settings.graphics.diagnostics;
+
+        if (netHigh || netMedium || netLow) {
+          const cur = settings.graphics.networkUsage || 'high';
+          if (netHigh) netHigh.checked = cur === 'high';
+          if (netMedium) netMedium.checked = cur === 'medium';
+          if (netLow) netLow.checked = cur === 'low';
+        }
+
+        if (colorPicker) colorPicker.value = settings.player.color || DEFAULT.player.color;
+        if (colorHexInput) colorHexInput.value = (settings.player.color || DEFAULT.player.color).toUpperCase();
+        if (chkHitbox) chkHitbox.checked = !!settings.player.showHitbox;
+        if (chkPlayerState) chkPlayerState.checked = !!settings.player.showState;
+
+        keyButtons.forEach(btn => {
+          const action = btn.dataset.action;
+          const key = settings.keybinds[action];
+          btn.textContent = formatKeyLabel(key);
+        });
+      }
+
+      function applyToGame() {
+        if (keyOverlayEl) keyOverlayEl.style.display = settings.graphics.keyOverlay ? 'grid' : 'none';
+        if (statHUDEl) statHUDEl.style.display = settings.graphics.diagnostics ? 'block' : 'none';
+        if (fpsEl) fpsEl.style.display = settings.graphics.showFPS ? 'block' : 'none';
+        if (playerStateEl) playerStateEl.style.display = settings.player.showState ? 'block' : 'none';
+      }
+
+      function setSettingsOpen(open) {
+        settingsOpen = open;
+        if (open) overlay.classList.add('open');
+        else overlay.classList.remove('open');
+      }
+
+      function toggleSettingsOverlay() {
+        setSettingsOpen(!settingsOpen);
+      }
+
+      syncUI();
+      applyToGame();
+
+      if (closeBtn) {
+        closeBtn.addEventListener('click', () => setSettingsOpen(false));
+      }
+
+      if (chkPlayerInterp) {
+        chkPlayerInterp.addEventListener('change', () => {
+          settings.graphics.playerInterpolation = chkPlayerInterp.checked;
+          saveSettings();
+        });
+      }
+      if (chkShowFPS) {
+        chkShowFPS.addEventListener('change', () => {
+          settings.graphics.showFPS = chkShowFPS.checked;
+          saveSettings();
+          applyToGame();
+        });
+      }
+      if (chkKeyOverlay) {
+        chkKeyOverlay.addEventListener('change', () => {
+          settings.graphics.keyOverlay = chkKeyOverlay.checked;
+          saveSettings();
+          applyToGame();
+        });
+      }
+      if (chkDiagnostics) {
+        chkDiagnostics.addEventListener('change', () => {
+          settings.graphics.diagnostics = chkDiagnostics.checked;
+          saveSettings();
+          applyToGame();
+        });
+      }
+
+      function setNetwork(v) {
+        settings.graphics.networkUsage = v;
+        saveSettings();
+      }
+      if (netHigh) netHigh.addEventListener('change', () => { if (netHigh.checked) setNetwork('high'); });
+      if (netMedium) netMedium.addEventListener('change', () => { if (netMedium.checked) setNetwork('medium'); });
+      if (netLow) netLow.addEventListener('change', () => { if (netLow.checked) setNetwork('low'); });
+
+      if (colorPicker) {
+        colorPicker.addEventListener('input', () => {
+          const val = colorPicker.value || DEFAULT.player.color;
+          settings.player.color = val;
+          if (colorHexInput) colorHexInput.value = val.toUpperCase();
+          saveSettings();
+        });
+      }
+      if (colorHexInput) {
+        colorHexInput.addEventListener('change', () => {
+          let val = colorHexInput.value.trim();
+          if (!val.startsWith('#')) val = '#' + val;
+          if (/^#[0-9a-fA-F]{6}$/.test(val)) {
+            settings.player.color = val;
+            colorHexInput.value = val.toUpperCase();
+            if (colorPicker) colorPicker.value = val;
+            saveSettings();
+          } else {
+            colorHexInput.value = (settings.player.color || DEFAULT.player.color).toUpperCase();
+          }
+        });
+      }
+
+      if (chkHitbox) {
+        chkHitbox.addEventListener('change', () => {
+          settings.player.showHitbox = chkHitbox.checked;
+          saveSettings();
+        });
+      }
+      if (chkPlayerState) {
+        chkPlayerState.addEventListener('change', () => {
+          settings.player.showState = chkPlayerState.checked;
+          saveSettings();
+          applyToGame();
+        });
+      }
+
+      keyButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+          listeningFor = btn.dataset.action;
+          keyButtons.forEach(b => b.classList.toggle('listening', b === btn));
+        });
+      });
+
+      window.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+          toggleSettingsOverlay();
+        }
+      });
+
+      window.addEventListener('keydown', function(e) {
+        if (!settingsOpen || !listeningFor) return;
+        if (e.key === 'Escape') {
+          listeningFor = null;
+          keyButtons.forEach(b => b.classList.remove('listening'));
+          return;
+        }
+        e.preventDefault();
+        e.stopPropagation();
+
+        const action = listeningFor;
+        listeningFor = null;
+        keyButtons.forEach(b => b.classList.remove('listening'));
+
+        let val;
+        if (e.key === ' ') val = 'Space';
+        else if (e.key === 'Shift' || e.key === 'ShiftLeft' || e.key === 'ShiftRight') val = 'Shift';
+        else if (e.key.length === 1) val = e.key.toLowerCase();
+        else val = e.key;
+
+        settings.keybinds[action] = val;
+        saveSettings();
+        syncUI();
+      }, true);
+
+      const originalRAF = window.requestAnimationFrame;
+      let lastFrameTime = performance.now();
+      let fps = 0;
+
+      window.requestAnimationFrame = function(callback) {
+        return originalRAF(function(timestamp) {
+          const dt = (timestamp - lastFrameTime) / 1000;
+          lastFrameTime = timestamp;
+          if (dt > 0 && dt < 1) {
+            fps = fps * 0.9 + (1 / dt) * 0.1;
+            if (fpsEl && settings.graphics.showFPS) {
+              fpsEl.textContent = 'FPS: ' + Math.round(fps);
+            }
+          }
+
+          callback(timestamp);
+
+          const c = window.canvas || document.getElementById('game');
+          if (window.ctx && window.player && window.cam && typeof window.zoom === 'number' && c) {
+            const p = window.player;
+            const pr = p.size / 2;
+            const color = settings.player.color || DEFAULT.player.color;
+
+            window.ctx.save();
+            window.ctx.translate(c.width / 2, c.height / 2);
+            window.ctx.scale(window.zoom, window.zoom);
+            window.ctx.translate(-window.cam.x, -window.cam.y);
+
+            window.ctx.beginPath();
+            window.ctx.fillStyle = color;
+            window.ctx.arc(p.x, p.y, pr, 0, Math.PI * 2);
+            window.ctx.fill();
+
+            if (settings.player.showHitbox) {
+              window.ctx.strokeStyle = '#ffdd33';
+              window.ctx.lineWidth = 2 / window.zoom;
+              window.ctx.strokeRect(p.x - pr, p.y - pr, p.size, p.size);
+            }
+
+            window.ctx.restore();
+          }
+
+          if (playerStateEl && settings.player.showState) {
+            playerStateEl.textContent = 'State: Alive';
+          }
+        });
+      };
+
+      window.__jpSettings = settings;
+    })();
+  </script>
+
+</body>
+</html>
